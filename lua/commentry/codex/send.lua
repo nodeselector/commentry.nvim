@@ -49,11 +49,9 @@ end
 ---@param name string
 ---@return table|nil
 local function load_adapter(name)
-  if name == "sidekick" then
-    local ok, mod = pcall(require, "commentry.codex.adapters.sidekick")
-    if ok and type(mod) == "table" then
-      return mod
-    end
+  local ok, mod = pcall(require, "commentry.codex.adapters." .. name)
+  if ok and type(mod) == "table" and type(mod.send) == "function" then
+    return mod
   end
   return nil
 end
@@ -62,11 +60,11 @@ end
 local function resolve_target()
   local configured = Config.codex and Config.codex.adapter or {}
   local selected = configured.select or "auto"
-  if selected ~= "auto" and selected ~= "sidekick" then
-    return nil, nil, "ADAPTER_UNAVAILABLE"
-  end
 
-  local adapter_mod = load_adapter("sidekick")
+  -- "auto" defaults to sidekick for backward compat
+  local adapter_name = selected == "auto" and "sidekick" or selected
+
+  local adapter_mod = load_adapter(adapter_name)
   if type(adapter_mod) ~= "table" or type(adapter_mod.send) ~= "function" then
     return nil, nil, "ADAPTER_UNAVAILABLE"
   end
@@ -82,19 +80,18 @@ local function resolve_target()
     return nil, nil, "NO_TARGET"
   end
 
-  return target, "sidekick", nil
+  return target, adapter_name, nil
 end
 
 ---@param cb fun(target:table|nil, adapter_name:string|nil, err_code:string|nil, err_message:string|nil)
 local function resolve_target_async(cb)
   local configured = Config.codex and Config.codex.adapter or {}
   local selected = configured.select or "auto"
-  if selected ~= "auto" and selected ~= "sidekick" then
-    cb(nil, nil, "ADAPTER_UNAVAILABLE", nil)
-    return
-  end
 
-  local adapter_mod = load_adapter("sidekick")
+  -- "auto" defaults to sidekick for backward compat
+  local adapter_name = selected == "auto" and "sidekick" or selected
+
+  local adapter_mod = load_adapter(adapter_name)
   if type(adapter_mod) ~= "table" or type(adapter_mod.send) ~= "function" then
     cb(nil, nil, "ADAPTER_UNAVAILABLE", nil)
     return
@@ -111,7 +108,7 @@ local function resolve_target_async(cb)
         session_id = attached.session_id,
         workspace = attached.workspace,
         send = adapter_mod.send,
-      }, "sidekick", nil, nil)
+      }, adapter_name, nil, nil)
     end)
     return
   end
@@ -126,7 +123,7 @@ local function resolve_target_async(cb)
     cb(nil, nil, "NO_TARGET", nil)
     return
   end
-  cb(target, "sidekick", nil, nil)
+  cb(target, adapter_name, nil, nil)
 end
 
 ---@param opts table
