@@ -24,8 +24,8 @@ local on_reply_cb = nil -- callback for incoming agent replies
 local function bridge_script_path()
   local info = debug.getinfo(1, "S")
   local src = info.source:sub(2)
-  -- adapters/copilot_app.lua → codex/ → commentry/ → lua/ → plugin root
-  local plugin_root = vim.fn.fnamemodify(src, ":h:h:h:h")
+  -- adapters/copilot_app.lua → adapters/ → codex/ → commentry/ → lua/ → plugin root
+  local plugin_root = vim.fn.fnamemodify(src, ":h:h:h:h:h")
   return plugin_root .. "/bridge.mjs"
 end
 
@@ -96,22 +96,22 @@ local function handle_message(msg)
 end
 
 local function on_stdout(_, data, _)
-  for _, chunk in ipairs(data) do
-    stdout_buf = stdout_buf .. chunk
+  if not data or #data == 0 then
+    return
   end
-  while true do
-    local nl = stdout_buf:find("\n")
-    if not nl then
-      break
-    end
-    local line = stdout_buf:sub(1, nl - 1)
-    stdout_buf = stdout_buf:sub(nl + 1)
-    if line ~= "" then
-      local ok, msg = pcall(vim.json.decode, line)
+  -- Neovim splits on newlines: data = { "partial", "line2", "line3", "" }
+  -- data[1] completes the previous incomplete line in stdout_buf.
+  -- data[2..n] are new line starts. An empty trailing element means the
+  -- prior element ended with a newline (complete line).
+  stdout_buf = stdout_buf .. data[1]
+  for i = 2, #data do
+    if stdout_buf ~= "" then
+      local ok, msg = pcall(vim.json.decode, stdout_buf)
       if ok then
         handle_message(msg)
       end
     end
+    stdout_buf = data[i]
   end
 end
 
@@ -466,6 +466,18 @@ end
 ---@param cb fun(reply: table)|nil
 function M.on_reply(cb)
   on_reply_cb = cb
+end
+
+--- Debug: expose internal state for troubleshooting
+function M._debug()
+  return {
+    bridge_job = bridge_job,
+    connected = connected,
+    resolved_ws = resolved_ws,
+    session_id = session_id,
+    workspaces_count = #workspaces,
+    stdout_buf_len = #stdout_buf,
+  }
 end
 
 --- Clean up on VimLeavePre
